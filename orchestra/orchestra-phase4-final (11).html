@@ -1,0 +1,1749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Orchestra — Phase 4: Hand Conducting</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Georgia', serif; cursor: none; }
+  canvas { display: block; }
+
+  /* Custom baton cursor */
+  #baton {
+    position: fixed; pointer-events: none; z-index: 100;
+    width: 4px; height: 36px; border-radius: 2px;
+    background: linear-gradient(to bottom, #fff8e0, #c9a84c);
+    transform: translate(-50%, -50%) rotate(35deg);
+    transform-origin: center center;
+    box-shadow: 0 0 8px rgba(255,220,100,0.6);
+    transition: box-shadow 0.1s;
+  }
+  #baton.active { box-shadow: 0 0 18px rgba(255,220,100,1), 0 0 40px rgba(255,160,40,0.5); }
+
+  /* Top label */
+  #phase-label {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,200,100,0.6); font-size: 10px; letter-spacing: 4px;
+    text-transform: uppercase; text-align: center; pointer-events: none;
+  }
+  #phase-label span {
+    display: block; font-size: 20px; letter-spacing: 2px;
+    color: rgba(255,220,140,0.85); margin-top: 3px;
+  }
+
+  /* START overlay */
+  #start-overlay {
+    position: fixed; inset: 0; background: rgba(4,2,10,0.92);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 200;
+  }
+  #start-overlay h1 {
+    color: rgba(255,220,140,0.9); font-size: 13px; letter-spacing: 6px;
+    text-transform: uppercase; margin-bottom: 12px;
+  }
+  #start-overlay p {
+    color: rgba(255,200,100,0.5); font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; margin-bottom: 40px; text-align: center; line-height: 2;
+  }
+  #start-btn {
+    background: none; border: 1px solid rgba(201,168,76,0.6); color: rgba(255,220,140,0.9);
+    font-family: 'Georgia', serif; font-size: 12px; letter-spacing: 4px;
+    text-transform: uppercase; padding: 14px 40px; cursor: pointer;
+    transition: all 0.3s;
+  }
+  #start-btn:hover { background: rgba(201,168,76,0.1); border-color: rgba(201,168,76,1); }
+
+  /* Section indicators */
+  #section-hud {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 18px; pointer-events: none;
+  }
+  .sec-pill {
+    display: flex; align-items: center; gap: 7px; padding: 5px 12px;
+    border-radius: 20px; border: 1px solid transparent;
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: rgba(255,200,100,0.35); transition: all 0.3s;
+  }
+  .sec-pill.active {
+    color: rgba(255,220,140,0.95);
+    border-color: currentColor;
+    text-shadow: 0 0 8px currentColor;
+  }
+  .sec-dot { width: 7px; height: 7px; border-radius: 50%; transition: all 0.3s; }
+
+  /* Chord display */
+  #chord-display {
+    position: fixed; top: 82px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,200,100,0.0); font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase; text-align: center; pointer-events: none;
+    transition: color 0.4s, opacity 0.4s;
+  }
+  #chord-display.visible { color: rgba(255,200,100,0.45); }
+
+  /* Velocity meter */
+  #vel-meter {
+    position: fixed; right: 28px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 120px; background: rgba(255,200,100,0.1);
+    border-radius: 2px; pointer-events: none;
+  }
+  #vel-fill {
+    position: absolute; bottom: 0; width: 100%; border-radius: 2px;
+    background: rgba(255,200,100,0.7); transition: height 0.1s;
+  }
+  #vel-label {
+    position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+    font-size: 8px; letter-spacing: 2px; color: rgba(255,200,100,0.4);
+    white-space: nowrap;
+  }
+
+  /* Silence flash */
+  #silence-text {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    color: rgba(255,200,100,0); font-size: 11px; letter-spacing: 8px;
+    text-transform: uppercase; pointer-events: none;
+    transition: color 0.6s;
+  }
+  #silence-text.show { color: rgba(255,200,100,0.3); }
+
+  /* ── ORCHESTRA MODE PANEL ─────────────────────────── */
+  #orch-toggle {
+    position: fixed; top: 22px; right: 28px; z-index: 300;
+    background: none; border: 1px solid rgba(201,168,76,0.4);
+    color: rgba(255,220,140,0.7); font-family:'Georgia',serif;
+    font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+    padding: 7px 14px; cursor: pointer; border-radius: 20px;
+    transition: all 0.3s;
+  }
+  #orch-toggle:hover, #orch-toggle.active {
+    background: rgba(201,168,76,0.12);
+    border-color: rgba(201,168,76,0.9);
+    color: rgba(255,220,140,1);
+  }
+
+  #orch-panel {
+    position: fixed; top: 56px; right: 28px; z-index: 300;
+    background: rgba(4,2,10,0.94); border: 1px solid rgba(201,168,76,0.25);
+    border-radius: 12px; padding: 18px; width: 240px;
+    display: none; flex-direction: column; gap: 10px;
+    backdrop-filter: blur(8px);
+  }
+  #orch-panel.open { display: flex; }
+
+  .orch-title {
+    font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+    color: rgba(201,168,76,0.6); margin-bottom: 4px;
+  }
+
+  .track-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid rgba(201,168,76,0.0);
+    transition: all 0.25s; background: rgba(255,255,255,0.02);
+  }
+  .track-card:hover { background: rgba(201,168,76,0.08); border-color: rgba(201,168,76,0.2); }
+  .track-card.playing {
+    background: rgba(201,168,76,0.14);
+    border-color: rgba(201,168,76,0.5);
+  }
+  .track-icon {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(201,168,76,0.15); flex-shrink: 0;
+    font-size: 11px; color: rgba(255,220,140,0.9);
+    border: 1px solid rgba(201,168,76,0.3);
+  }
+  .track-card.playing .track-icon { background: rgba(201,168,76,0.4); }
+  .track-info { flex: 1; min-width: 0; }
+  .track-name {
+    font-size: 10px; color: rgba(255,220,140,0.85);
+    letter-spacing: 0.5px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .track-sub {
+    font-size: 9px; color: rgba(255,200,100,0.4);
+    letter-spacing: 1px; margin-top: 2px;
+  }
+  .track-card.playing .track-name { color: rgba(255,230,150,1); }
+
+  /* Mini now-playing bar */
+  #now-playing {
+    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+    background: rgba(4,2,10,0.88); border: 1px solid rgba(201,168,76,0.25);
+    border-radius: 24px; padding: 8px 18px;
+    display: none; align-items: center; gap: 12px;
+    backdrop-filter: blur(6px); z-index: 300;
+  }
+  #now-playing.visible { display: flex; }
+  #now-playing-title {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(255,220,140,0.8);
+  }
+  #now-playing-stop {
+    background: none; border: none; color: rgba(201,168,76,0.6);
+    cursor: pointer; font-size: 14px; padding: 0; line-height: 1;
+    transition: color 0.2s;
+  }
+  #now-playing-stop:hover { color: rgba(201,168,76,1); }
+
+  /* Pulse animation on playing track icon */
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(201,168,76,0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(201,168,76,0); }
+    100% { box-shadow: 0 0 0 0 rgba(201,168,76,0); }
+  }
+  .track-card.playing .track-icon { animation: pulse-ring 1.5s ease-out infinite; }
+
+  /* Progress bar inside now-playing */
+  #np-progress { flex: 1; height: 2px; background: rgba(201,168,76,0.15); border-radius: 1px; min-width: 80px; }
+  #np-bar { height: 100%; background: rgba(201,168,76,0.7); border-radius: 1px; width: 0%; transition: width 0.5s linear; }
+
+  /* ── HAND TRACKING ─────────────────────────────────── */
+  #hand-toggle {
+    position: fixed; top: 22px; left: 28px; z-index: 300;
+    background: none; border: 1px solid rgba(201,168,76,0.4);
+    color: rgba(255,220,140,0.7); font-family:'Georgia',serif;
+    font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+    padding: 7px 14px; cursor: pointer; border-radius: 20px; transition: all 0.3s;
+  }
+  #hand-toggle:hover { background: rgba(201,168,76,0.12); border-color: rgba(201,168,76,0.9); }
+  #hand-toggle.active { background: rgba(30,20,5,0.9); border-color: rgba(201,168,76,1); color:#fff; }
+  #hand-canvas {
+    position: fixed; bottom: 16px; left: 16px; width: 180px; height: 130px;
+    border-radius: 10px; border: 1px solid rgba(201,168,76,0.3);
+    display: none; z-index: 200; background: #000;
+  }
+  #hand-canvas.visible { display: block; }
+  #hand-status {
+    position: fixed; bottom: 152px; left: 16px;
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(201,168,76,0.5); display: none; pointer-events: none;
+  }
+  #hand-status.visible { display: block; }
+  #video-el {
+    position: fixed; bottom: 0; right: 0;
+    width: 1px; height: 1px; opacity: 0;
+    pointer-events: none; z-index: -1;
+  }
+  /* Hand-mode baton shows wrist position */
+  #hand-dot {
+    position: fixed; width: 12px; height: 12px; border-radius: 50%;
+    background: rgba(255,220,100,0.9); box-shadow: 0 0 16px rgba(255,200,50,0.8);
+    transform: translate(-50%,-50%); pointer-events: none; z-index: 150;
+    display: none; transition: box-shadow 0.1s;
+  }
+  #hand-dot.visible { display: block; }
+</style>
+</head>
+<body>
+
+<!-- Start overlay (audio requires user gesture) -->
+<div id="start-overlay">
+  <h1>The Orchestra</h1>
+  <p>Use your hand to conduct · Or move your cursor<br>
+  Speed controls volume · Position controls section<br>
+  Click 🎼 Orchestra for real performances</p>
+  <button id="start-btn">✋ Raise Your Hand</button>
+  <p style="margin-top:18px;font-size:9px;opacity:0.4">Allow camera access when prompted for hand tracking</p>
+</div>
+
+<div id="phase-label">Phase 4<span>Hand Conducting</span></div>
+<div id="baton"></div>
+
+<!-- Hand tracking elements -->
+<button id="hand-toggle">✋ Hand Mode</button>
+<video id="video-el" playsinline autoplay muted></video>
+<canvas id="hand-canvas"></canvas>
+<div id="hand-status">● Detecting hand…</div>
+<div id="hand-dot"></div>
+<div id="chord-display">D Minor</div>
+<div id="silence-text">— silence —</div>
+
+<div id="section-hud">
+  <div class="sec-pill" id="pill-strings">
+    <div class="sec-dot" style="background:#f0c060"></div>Strings
+  </div>
+  <div class="sec-pill" id="pill-woodwind">
+    <div class="sec-dot" style="background:#60b0f0"></div>Woodwind
+  </div>
+  <div class="sec-pill" id="pill-brass">
+    <div class="sec-dot" style="background:#f08040"></div>Brass
+  </div>
+  <div class="sec-pill" id="pill-percussion">
+    <div class="sec-dot" style="background:#c060f0"></div>Percussion
+  </div>
+</div>
+
+<div id="vel-meter">
+  <div id="vel-label">tempo</div>
+  <div id="vel-fill" style="height:0%"></div>
+</div>
+
+<!-- Orchestra Mode Toggle -->
+<button id="orch-toggle">🎼 Orchestra</button>
+
+<!-- Track Selection Panel -->
+<div id="orch-panel">
+  <div class="orch-title">Select a Performance</div>
+
+  <div class="track-card" data-idx="0">
+    <div class="track-icon">♩</div>
+    <div class="track-info">
+      <div class="track-name">Symphony No. 5 · I</div>
+      <div class="track-sub">Beethoven · Allegro con brio</div>
+    </div>
+  </div>
+
+  <div class="track-card" data-idx="1">
+    <div class="track-icon">♪</div>
+    <div class="track-info">
+      <div class="track-name">Symphony No. 5 · III</div>
+      <div class="track-sub">Beethoven · Allegro</div>
+    </div>
+  </div>
+
+  <div class="track-card" data-idx="2">
+    <div class="track-icon">♫</div>
+    <div class="track-info">
+      <div class="track-name">Symphony No. 6 · IV</div>
+      <div class="track-sub">Beethoven · Pastoral · Allegro</div>
+    </div>
+  </div>
+
+  <div class="track-card" data-idx="3">
+    <div class="track-icon">𝄞</div>
+    <div class="track-info">
+      <div class="track-name">Symphony No. 4 · IV</div>
+      <div class="track-sub">Beethoven · Allegro ma non troppo</div>
+    </div>
+  </div>
+</div>
+
+<!-- Now Playing Bar -->
+<div id="now-playing">
+  <span id="now-playing-title">—</span>
+  <div id="np-progress"><div id="np-bar"></div></div>
+  <button id="now-playing-stop" title="Stop">■</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- MediaPipe Hands -->
+<!-- MediaPipe loaded dynamically in JS if available -->
+<script>
+// ═══════════════════════════════════════════════════════
+// SCENE
+// ═══════════════════════════════════════════════════════
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x04020a);
+scene.fog = new THREE.FogExp2(0x04020a, 0.016);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(0, 5.5, 16);
+camera.lookAt(0, 3, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ReinhardToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+// ═══════════════════════════════════════════════════════
+// MATERIALS — HALL
+// ═══════════════════════════════════════════════════════
+const M = {
+  floor:   new THREE.MeshStandardMaterial({ color:0x1a0d06, roughness:0.3, metalness:0.1 }),
+  stage:   new THREE.MeshStandardMaterial({ color:0x2a1606, roughness:0.4, metalness:0.05 }),
+  wall:    new THREE.MeshStandardMaterial({ color:0x2d0f0f, roughness:0.85 }),
+  ceiling: new THREE.MeshStandardMaterial({ color:0x1a0a0a, roughness:0.9 }),
+  gold:    new THREE.MeshStandardMaterial({ color:0xc9a84c, roughness:0.2, metalness:0.8 }),
+  dwood:   new THREE.MeshStandardMaterial({ color:0x180b04, roughness:0.6 }),
+  balcony: new THREE.MeshStandardMaterial({ color:0x3d1a1a, roughness:0.8 }),
+  curtain: new THREE.MeshStandardMaterial({ color:0x6b0e0e, roughness:1.0, side:THREE.DoubleSide }),
+};
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+function mk(geo, mat, parent, x=0,y=0,z=0, rx=0,ry=0,rz=0) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x,y,z); m.rotation.set(rx,ry,rz);
+  m.castShadow = true; m.receiveShadow = true;
+  parent.add(m); return m;
+}
+function bx(w,h,d,mat,x=0,y=0,z=0,rx=0,ry=0,rz=0,p=scene) {
+  return mk(new THREE.BoxGeometry(w,h,d), mat, p, x,y,z,rx,ry,rz);
+}
+function cy(rt,rb,h,mat,x=0,y=0,z=0,seg=8,p=scene) {
+  return mk(new THREE.CylinderGeometry(rt,rb,h,seg), mat, p, x,y,z);
+}
+function sp(r,mat,x=0,y=0,z=0,p=scene) {
+  return mk(new THREE.SphereGeometry(r,8,6), mat, p, x,y,z);
+}
+
+// ═══════════════════════════════════════════════════════
+// HALL STRUCTURE
+// Stage box: pos=(0,0.4,-4), size=(22,0.6,18)
+// Stage top surface Y = 0.4 + 0.3 = 0.70
+// ═══════════════════════════════════════════════════════
+const STAGE_TOP = 0.70;
+
+bx(40,0.2,35,M.floor,0,0,0);
+bx(22,0.6,18,M.stage,0,0.4,-4);
+bx(22,0.15,0.2,M.gold,0,0.75,5);
+bx(40,22,0.5,M.wall,0,11,-13);
+bx(0.5,22,35,M.wall,-20,11,0); bx(0.5,22,35,M.wall,20,11,0);
+bx(40,0.3,35,M.ceiling,0,22,0);
+
+for(let z=-12;z<=12;z+=2){ bx(0.15,0.15,0.15,M.gold,-19.8,1.5,z); bx(0.15,0.15,0.15,M.gold,19.8,1.5,z); }
+bx(0.2,0.12,35,M.gold,-19.8,4,0); bx(0.2,0.12,35,M.gold,19.8,4,0);
+bx(0.2,0.12,35,M.gold,-19.8,8,0); bx(0.2,0.12,35,M.gold,19.8,8,0);
+bx(40,0.12,0.2,M.gold,0,4,-12.8); bx(40,0.12,0.2,M.gold,0,8,-12.8);
+
+bx(3,0.3,14,M.balcony,-18.5,9,-1); bx(0.1,0.8,14,M.gold,-17,9.5,-1);
+for(let z=-7;z<=7;z+=1.4) bx(0.08,0.7,0.08,M.gold,-17,9.4,z-1);
+bx(3,0.3,14,M.balcony,18.5,9,-1); bx(0.1,0.8,14,M.gold,17,9.5,-1);
+for(let z=-7;z<=7;z+=1.4) bx(0.08,0.7,0.08,M.gold,17,9.4,z-1);
+
+[-16,-10,10,16].forEach(x=>{ [-6,0,4].forEach(z=>{ cy(0.25,0.28,14,M.gold,x,7,z,12); bx(0.7,0.3,0.7,M.gold,x,0.25,z); bx(0.8,0.2,0.8,M.gold,x,14.1,z); }); });
+
+bx(1.5,16,1,M.balcony,-12,8,5); bx(1.5,16,1,M.balcony,12,8,5);
+bx(24,2,1,M.balcony,0,16.5,5);
+bx(24,0.15,0.2,M.gold,0,15.6,4.6); bx(0.15,16,0.2,M.gold,-11.3,8,4.6); bx(0.15,16,0.2,M.gold,11.3,8,4.6);
+
+// Curtains — fresh geometry each side (no clone)
+function makeCurtain() {
+  const g = new THREE.PlaneGeometry(5,14,4,10);
+  const pa = g.attributes.position;
+  for(let i=0;i<pa.count;i++) pa.setZ(i, Math.sin((pa.getX(i)+2.5)*1.2)*0.4+Math.sin(pa.getY(i)*0.5)*0.15);
+  g.computeVertexNormals(); return g;
+}
+const cL=new THREE.Mesh(makeCurtain(),M.curtain); cL.position.set(-9,8.5,4.8); cL.castShadow=true; scene.add(cL);
+const cR=new THREE.Mesh(makeCurtain(),M.curtain); cR.position.set(9,8.5,4.8); cR.scale.x=-1; cR.castShadow=true; scene.add(cR);
+
+// Chandelier
+cy(0.15,0.4,1.5,M.gold,0,19.5,-2,16); cy(0.4,0.6,0.3,M.gold,0,18.6,-2,16);
+[0.8,1.4,1.9].forEach((r,i)=>{ const rg=new THREE.Mesh(new THREE.TorusGeometry(r,0.04,6,32),M.gold); rg.position.set(0,18.3-i*0.5,-2); rg.rotation.x=Math.PI/2; scene.add(rg); });
+for(let i=0;i<8;i++){ const a=(i/8)*Math.PI*2,ax=Math.cos(a)*1.4,az=Math.sin(a)*1.4; const am=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,1,4),M.gold); am.position.set(ax*0.5,18,-2+az*0.5); am.rotation.z=Math.cos(a)*0.6; am.rotation.x=Math.sin(a)*0.6; scene.add(am); cy(0.04,0.01,0.3,M.gold,ax,17.5,-2+az,6); }
+
+// Audience
+const smAt=new THREE.MeshStandardMaterial({color:0x1a0505,roughness:1}), hmAt=new THREE.MeshStandardMaterial({color:0x0d0506,roughness:1});
+for(let row=0;row<5;row++){ const z=8+row*1.6,y=0.2+row*0.12,cnt=18-row; for(let s=0;s<cnt;s++){ const x=-((cnt-1)*1.1)/2+s*1.1; bx(0.9,0.1,0.8,smAt,x,y+0.8,z); cy(0.22,0.2,0.35,hmAt,x,y+1.3,z-0.1,6); } }
+
+// Conductor podium
+bx(1.2,0.8,1.0,M.dwood,0,1.0,5.8); bx(1.4,0.08,1.2,M.dwood,0,1.45,5.8);
+const pt=bx(0.8,0.05,0.5,M.dwood,0,1.55,5.6); pt.rotation.x=-0.3;
+
+// ═══════════════════════════════════════════════════════
+// RISER PLATFORMS — stack up from stage top
+// Each riser adds 0.22 height
+// ═══════════════════════════════════════════════════════
+const rMat=new THREE.MeshStandardMaterial({color:0x1c0a04,roughness:0.75});
+// Woodwind riser: top = STAGE_TOP+0.22 = 0.92
+bx(16,0.22,5,rMat,0,STAGE_TOP+0.11,-3.5);
+// Brass riser: top = STAGE_TOP+0.44 = 1.14
+bx(14,0.44,4.5,rMat,0,STAGE_TOP+0.22,-7.5);
+// Percussion riser: top = STAGE_TOP+0.66 = 1.36
+bx(7,0.66,4,rMat,0,STAGE_TOP+0.33,-11.0);
+
+const FLOOR = {
+  strings:    STAGE_TOP,
+  woodwind:   STAGE_TOP + 0.22,
+  brass:      STAGE_TOP + 0.44,
+  percussion: STAGE_TOP + 0.66,
+};
+
+// ═══════════════════════════════════════════════════════
+// MUSICIAN MATERIALS
+// ═══════════════════════════════════════════════════════
+const skinM  = new THREE.MeshStandardMaterial({color:0xd4a574,roughness:0.7});
+const hairM  = new THREE.MeshStandardMaterial({color:0x100a05,roughness:1.0});
+const coatM  = new THREE.MeshStandardMaterial({color:0x070710,roughness:0.6});
+const shirtM = new THREE.MeshStandardMaterial({color:0xf5f0e8,roughness:0.9});
+const tieM   = new THREE.MeshStandardMaterial({color:0x080812,roughness:0.5});
+const trousM = new THREE.MeshStandardMaterial({color:0x060608,roughness:0.8});
+const shoeM  = new THREE.MeshStandardMaterial({color:0x040404,roughness:0.25,metalness:0.15});
+const chairM = new THREE.MeshStandardMaterial({color:0x1a0808,roughness:0.9});
+const standM = new THREE.MeshStandardMaterial({color:0x282828,roughness:0.4,metalness:0.5});
+const paperM = new THREE.MeshStandardMaterial({color:0xe8e4d8,roughness:1.0});
+const vlinM  = new THREE.MeshStandardMaterial({color:0x7a3a10,roughness:0.3,metalness:0.05});
+const bowM   = new THREE.MeshStandardMaterial({color:0xc8960a,roughness:0.2,metalness:0.6});
+const clarM  = new THREE.MeshStandardMaterial({color:0x181818,roughness:0.3,metalness:0.7});
+const brassM = new THREE.MeshStandardMaterial({color:0xd4a020,roughness:0.15,metalness:0.95});
+const bowHairM = new THREE.MeshStandardMaterial({color:0xf0eee0,roughness:1.0});
+
+// ═══════════════════════════════════════════════════════
+// BUILD MUSICIAN
+// floorY  = y of floor surface
+// facingY = rotation.y to face conductor
+// ═══════════════════════════════════════════════════════
+const musicians = [];
+
+function buildMusician(section, wx, wz, floorY, facingY) {
+  const root = new THREE.Group();
+  root.position.set(wx, floorY, wz);
+  root.rotation.y = facingY;
+  scene.add(root);
+
+  // CHAIR — seat top at local y = 0.44
+  const SEAT = 0.44;
+  // Seat pad
+  bx(0.52,0.06,0.48,chairM,0,SEAT,0,0,0,0,root);
+  // Back rest — at +Z (behind musician, away from conductor)
+  bx(0.48,0.44,0.06,chairM,0,SEAT+0.25,0.21,0,0,0,root);
+  // 4 legs — nice thin cylinders
+  [[-0.19,-0.19],[0.19,-0.19],[-0.19,0.19],[0.19,0.19]].forEach(([lx,lz])=>{
+    cy(0.020,0.020,SEAT,chairM,lx,SEAT/2,lz,5,root);
+  });
+
+  // BODY ROOT — positioned at seat top
+  const bodyG = new THREE.Group();
+  bodyG.position.set(0, SEAT, 0);
+  root.add(bodyG);
+
+  // THIGHS — horizontal slabs going forward (z- = toward music stand = in front of musician)
+  bx(0.16,0.13,0.34,trousM,-0.11,0.065,-0.14,0,0,0,bodyG);
+  bx(0.16,0.13,0.34,trousM, 0.11,0.065,-0.14,0,0,0,bodyG);
+
+  // SHINS — hanging down from front of thighs
+  bx(0.13,0.33,0.13,trousM,-0.11,-0.16,-0.28,0,0,0,bodyG);
+  bx(0.13,0.33,0.13,trousM, 0.11,-0.16,-0.28,0,0,0,bodyG);
+
+  // SHOES — at bottom of shins, extended forward
+  bx(0.13,0.07,0.22,shoeM,-0.11,-0.35,-0.32,0,0,0,bodyG);
+  bx(0.13,0.07,0.22,shoeM, 0.11,-0.35,-0.32,0,0,0,bodyG);
+
+  // TORSO GROUP (animated)
+  const torsoG = new THREE.Group();
+  torsoG.position.set(0,0.05,0);
+  bodyG.add(torsoG);
+
+  // Main coat body
+  bx(0.44,0.52,0.26,coatM,0,0.26,0,0,0,0,torsoG);
+  // White shirt front
+  bx(0.15,0.32,0.04,shirtM,0,0.22,-0.14,0,0,0,torsoG);
+  // Lapels
+  bx(0.06,0.14,0.04,shirtM,-0.09,0.36,-0.14,0,0,0,torsoG);
+  bx(0.06,0.14,0.04,shirtM, 0.09,0.36,-0.14,0,0,0,torsoG);
+  // Bow tie
+  bx(0.065,0.040,0.032,tieM,-0.038,0.46,-0.135,0,0,0,torsoG);
+  bx(0.065,0.040,0.032,tieM, 0.038,0.46,-0.135,0,0,0,torsoG);
+  // Coat tails (behind seat)
+  bx(0.16,0.28,0.05,coatM,-0.12,0.04,0.12,0.08,0,0,torsoG);
+  bx(0.16,0.28,0.05,coatM, 0.12,0.04,0.12,0.08,0,0,torsoG);
+
+  // LEFT ARM GROUP (animated — bowing)
+  const armL = new THREE.Group();
+  armL.position.set(-0.26,0.38,0);
+  torsoG.add(armL);
+  bx(0.10,0.26,0.10,coatM,0,-0.13,0,0,0,0,armL);
+  const foreL = new THREE.Group();
+  foreL.position.set(0,-0.28,0);
+  armL.add(foreL);
+  bx(0.09,0.22,0.09,coatM,0,-0.11,0,0,0,0,foreL);
+  bx(0.08,0.09,0.07,skinM,0,-0.24,0,0,0,0,foreL);
+
+  // RIGHT ARM GROUP (static — holds instrument)
+  const armR = new THREE.Group();
+  armR.position.set(0.26,0.36,0);
+  armR.rotation.z = -0.55; armR.rotation.x = -0.22;
+  torsoG.add(armR);
+  bx(0.10,0.26,0.10,coatM,0,-0.13,0,0,0,0,armR);
+  const foreR = new THREE.Group();
+  foreR.position.set(0,-0.28,0); armR.add(foreR);
+  bx(0.09,0.22,0.09,coatM,0,-0.11,0,0,0,0,foreR);
+  bx(0.08,0.09,0.07,skinM,0,-0.24,0,0,0,0,foreR);
+
+  // HEAD
+  const headG = new THREE.Group();
+  headG.position.set(0,0.56,-0.02);
+  torsoG.add(headG);
+  cy(0.065,0.075,0.13,skinM,0,0.065,0,8,headG);
+  const hd=new THREE.Mesh(new THREE.SphereGeometry(0.135,10,8),skinM);
+  hd.scale.set(0.92,1.05,0.90); hd.position.set(0,0.21,0); hd.castShadow=true; headG.add(hd);
+  const hr=new THREE.Mesh(new THREE.SphereGeometry(0.138,10,8),hairM);
+  hr.scale.set(0.92,0.58,0.90); hr.position.set(0,0.28,0.02); hr.castShadow=true; headG.add(hr);
+  // Ears
+  sp(0.032,skinM,-0.135,0.21,0,headG);
+  sp(0.032,skinM, 0.135,0.21,0,headG);
+
+  // ── INSTRUMENTS ─────────────────────────────────────────────────────
+
+  if(section==='strings'){
+    // Violin held under chin at left shoulder
+    const vg=new THREE.Group();
+    vg.position.set(-0.22,0.46,-0.14);
+    vg.rotation.set(0.15,0.12,0.38);
+    torsoG.add(vg);
+    // Lower bout (wider bottom)
+    bx(0.12,0.18,0.038,vlinM,0,-0.11,0,0,0,0,vg);
+    // Waist (narrow middle)
+    bx(0.075,0.06,0.038,vlinM,0,0.00,0,0,0,0,vg);
+    // Upper bout
+    bx(0.10,0.14,0.038,vlinM,0,0.09,0,0,0,0,vg);
+    // Neck
+    bx(0.024,0.14,0.022,vlinM,0,0.205,0,0,0,0,vg);
+    // Scroll (peg box)
+    sp(0.020,vlinM,0,0.285,0,vg);
+    // Strings plate
+    bx(0.055,0.36,0.006,bowM,0,0.03,-0.022,0,0,0,vg);
+    // F-holes suggestion (dark slots)
+    bx(0.010,0.06,0.042,new THREE.MeshStandardMaterial({color:0x0a0502}),  -0.03, 0.0, 0, 0,0,0,vg);
+    bx(0.010,0.06,0.042,new THREE.MeshStandardMaterial({color:0x0a0502}),   0.03, 0.0, 0, 0,0,0,vg);
+
+    // Bow — in left hand
+    const bwg=new THREE.Group();
+    bwg.position.set(-0.10,0.06,-0.10);
+    bwg.rotation.set(0.15,0.08,Math.PI/2);
+    torsoG.add(bwg);
+    cy(0.007,0.005,0.54,bowM,0,0,0,5,bwg);
+    bx(0.004,0.48,0.010,bowHairM,0,0,0.012,0,0,0,bwg);
+    sp(0.010,bowM,0,0.27,0,bwg);
+    sp(0.012,bowM,0,-0.27,0,bwg);
+
+  }else if(section==='woodwind'){
+    // Clarinet — held diagonally in front
+    const clg=new THREE.Group();
+    clg.position.set(0.04,0.30,-0.20);
+    clg.rotation.set(0.52,0.06,-0.08);
+    torsoG.add(clg);
+    cy(0.020,0.020,0.26,clarM,0, 0.13,0,8,clg); // upper joint
+    cy(0.022,0.022,0.20,clarM,0,-0.10,0,8,clg); // lower joint
+    cy(0.050,0.023,0.09,clarM,0,-0.245,0,10,clg); // bell flare
+    cy(0.015,0.020,0.055,clarM,0, 0.29,0,6,clg);  // mouthpiece
+    // Key rings (silver)
+    [0.06,0.0,-0.12].forEach(ky=>{
+      const kr=new THREE.Mesh(new THREE.TorusGeometry(0.026,0.005,4,8),bowM);
+      kr.position.set(0,ky,0); kr.rotation.x=Math.PI/2; clg.add(kr);
+    });
+    // Key levers (small blobs)
+    bx(0.04,0.006,0.02,bowM,0.025,0.04,0.022,0,0,0,clg);
+    bx(0.04,0.006,0.02,bowM,0.025,-0.05,0.022,0,0,0,clg);
+
+  }else if(section==='brass'){
+    // French horn — coil + bell
+    const brg=new THREE.Group();
+    brg.position.set(0.10,0.24,-0.16);
+    brg.rotation.set(0.08,0.25,-0.38);
+    torsoG.add(brg);
+    // Coil body
+    const coil=new THREE.Mesh(new THREE.TorusGeometry(0.11,0.024,7,18),brassM);
+    coil.castShadow=true; brg.add(coil);
+    // Bell
+    cy(0.11,0.030,0.16,brassM,0.13,-0.04,0.04,10,brg);
+    cy(0.030,0.018,0.05,brassM,0.07,0.02,0.03,6,brg); // bell neck
+    // Leadpipe curve
+    cy(0.016,0.016,0.18,brassM,-0.07,0.06,0.02,6,brg);
+    // 3 valves
+    [-0.02,0.02,0.06].forEach((vx,vi)=>{
+      cy(0.022,0.022,0.068,brassM,vx-0.01,0.04+vi*0.003,-0.03,6,brg);
+    });
+    // Valve caps (gold domes)
+    [-0.02,0.02,0.06].forEach((vx,vi)=>{
+      sp(0.024,brassM,vx-0.01,0.08+vi*0.003,-0.03,brg);
+    });
+
+  }else if(section==='percussion'){
+    // Two drumsticks
+    const stL=new THREE.Group();
+    stL.position.set(-0.18,0.34,-0.16);
+    stL.rotation.set(0.35,0.10,0.65);
+    torsoG.add(stL);
+    cy(0.013,0.008,0.40,standM,0,0,0,5,stL);
+    sp(0.019,standM,0,0.21,0,stL);
+
+    const stR=new THREE.Group();
+    stR.position.set(0.18,0.30,-0.16);
+    stR.rotation.set(0.28,-0.10,-0.65);
+    torsoG.add(stR);
+    cy(0.013,0.008,0.40,standM,0,0,0,5,stR);
+    sp(0.019,standM,0,0.21,0,stR);
+  }
+
+  // ── MUSIC STAND — in front of musician (z- in local space) ──────────
+  const msG=new THREE.Group();
+  msG.position.set(0,0,-0.64);
+  root.add(msG);
+  // Post
+  cy(0.017,0.017,0.80,standM,0,0.40,0,5,msG);
+  // Desk (tilted toward musician)
+  bx(0.32,0.022,0.24,standM,0,0.83,0.04,-0.30,0,0,msG);
+  // Sheet music
+  bx(0.28,0.010,0.20,paperM,0,0.843,0.04,-0.30,0,0,msG);
+  // Tripod base
+  cy(0.012,0.012,0.24,standM,-0.12,0.12, 0.10, 4,msG);
+  cy(0.012,0.012,0.24,standM, 0.12,0.12, 0.10, 4,msG);
+  cy(0.012,0.012,0.24,standM, 0.00,0.12,-0.14, 4,msG);
+
+  musicians.push({ torsoG, armL, foreL, headG, section,
+    phase: Math.random()*Math.PI*2, bowPhase: Math.random()*Math.PI*2 });
+
+  return root;
+}
+
+// ═══════════════════════════════════════════════════════
+// SEMICIRCLE LAYOUT — arcs centered near conductor
+// Conductor at z=5.8. Musicians placed in arcs.
+// Each musician faces the conductor using atan2.
+// ═══════════════════════════════════════════════════════
+const COND_X=0, COND_Z=5.8;
+
+function placeArc(section, radius, arcSpan, count, floorY) {
+  // Arc spans -arcSpan/2 to +arcSpan/2 in angle from conductor
+  for(let i=0;i<count;i++){
+    const t = count===1 ? 0 : (i/(count-1)-0.5);
+    const angle = t * arcSpan;
+    // Position on arc (in world space, behind conductor)
+    const mx = COND_X + Math.sin(angle)*radius;
+    const mz = COND_Z - Math.cos(angle)*radius;
+    // Facing angle toward conductor
+    const dx = COND_X - mx, dz = COND_Z - mz;
+    // Body is built facing local -Z, so add PI to make -Z point toward conductor
+    const facingY = Math.atan2(dx, dz) + Math.PI;
+    buildMusician(section, mx, mz, floorY, facingY);
+  }
+}
+
+// STRINGS: row 1, close radius, wide arc (8 musicians)
+placeArc('strings',  4.0, 1.8, 8, FLOOR.strings);
+// WOODWIND: row 2, medium radius (4 musicians)
+placeArc('woodwind', 6.6, 1.3, 4, FLOOR.woodwind);
+// BRASS: row 3, larger radius (3 musicians)
+placeArc('brass',    9.0, 1.0, 3, FLOOR.brass);
+// PERCUSSION: row 4, back center (1 musician)
+placeArc('percussion', 11.2, 0, 1, FLOOR.percussion);
+
+// ── TIMPANI DRUMS ──────────────────────────────────────────────────────
+const percZ = COND_Z - 11.2; // where perc musician sits
+const timM = new THREE.MeshStandardMaterial({color:0x3a3a3a,roughness:0.4,metalness:0.5});
+const rimM = new THREE.MeshStandardMaterial({color:0xc9a84c,roughness:0.2,metalness:0.8});
+
+[-1.2, 1.2].forEach(tx=>{
+  const kG=new THREE.SphereGeometry(0.60,12,8,0,Math.PI*2,0,Math.PI/2);
+  const kt=new THREE.Mesh(kG,timM);
+  kt.position.set(tx,FLOOR.percussion+0.40,percZ+0.7);
+  kt.rotation.x=Math.PI; kt.castShadow=true; scene.add(kt);
+  const rm=new THREE.Mesh(new THREE.TorusGeometry(0.60,0.038,6,24),rimM);
+  rm.position.set(tx,FLOOR.percussion+0.40,percZ+0.7);
+  rm.rotation.x=Math.PI/2; scene.add(rm);
+  [[-0.35,-0.35],[0.35,-0.35],[-0.35,0.35],[0.35,0.35]].forEach(([lx,lz])=>{
+    cy(0.022,0.018,0.40,timM,tx+lx,FLOOR.percussion+0.20,percZ+0.7+lz,4);
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// LIGHTING
+// ═══════════════════════════════════════════════════════
+scene.add(new THREE.AmbientLight(0x1a1028, 0.75));
+
+const chanLight = new THREE.PointLight(0xffcc77,1.8,28,1.5);
+chanLight.position.set(0,18,-2); scene.add(chanLight);
+
+[{x:-6,z:-3,c:0xffaa44,i:3.5},{x:0,z:-5,c:0xffcc66,i:4.5},{x:6,z:-3,c:0xffaa44,i:3.5}].forEach(s=>{
+  const sp=new THREE.SpotLight(s.c,s.i,30,Math.PI/7,0.4,1.5);
+  sp.position.set(s.x,18,s.z); sp.target.position.set(s.x*0.4,1,s.z+3);
+  sp.castShadow=true; sp.shadow.mapSize.set(512,512);
+  scene.add(sp); scene.add(sp.target);
+});
+
+const rl=new THREE.DirectionalLight(0xff7722,0.35);
+rl.position.set(0,8,-14); rl.target.position.set(0,2,0);
+scene.add(rl); scene.add(rl.target);
+
+const fL=new THREE.PointLight(0x3344aa,0.7,25,2); fL.position.set(-18,10,0); scene.add(fL);
+const fR=new THREE.PointLight(0x3344aa,0.7,25,2); fR.position.set( 18,10,0); scene.add(fR);
+const halo=new THREE.PointLight(0xffaa44,0.6,14,2); halo.position.set(0,16,-2); scene.add(halo);
+const stgFill=new THREE.PointLight(0xff9944,0.65,22,2); stgFill.position.set(0,5,1); scene.add(stgFill);
+
+// ═══════════════════════════════════════════════════════
+// ORBIT CONTROLS — right-drag or scroll only (left mouse reserved for conducting)
+// ═══════════════════════════════════════════════════════
+let dragging=false,px=0,py=0,theta=0,phi=0.28,radius=15;
+const ot=new THREE.Vector3(0,3,0);
+
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+renderer.domElement.addEventListener('mousedown',e=>{if(e.button===2){dragging=true;px=e.clientX;py=e.clientY;}});
+renderer.domElement.addEventListener('mouseup',()=>dragging=false);
+renderer.domElement.addEventListener('mousemove',e=>{
+  if(!dragging)return;
+  theta-=(e.clientX-px)*0.005; phi-=(e.clientY-py)*0.005;
+  phi=Math.max(0.05,Math.min(Math.PI*0.45,phi)); px=e.clientX; py=e.clientY;
+});
+renderer.domElement.addEventListener('wheel',e=>{
+  radius+=e.deltaY*0.02; radius=Math.max(4,Math.min(35,radius));
+},{passive:true});
+renderer.domElement.addEventListener('touchstart',e=>{if(e.touches.length===2){dragging=true;px=e.touches[0].clientX;py=e.touches[0].clientY;}});
+renderer.domElement.addEventListener('touchend',()=>dragging=false);
+renderer.domElement.addEventListener('touchmove',e=>{
+  if(!dragging||e.touches.length<2)return;
+  theta-=(e.touches[0].clientX-px)*0.005; phi-=(e.touches[0].clientY-py)*0.005;
+  phi=Math.max(0.05,Math.min(Math.PI*0.45,phi)); px=e.touches[0].clientX; py=e.touches[0].clientY;
+},{passive:true});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+// ═══════════════════════════════════════════════════════
+// WEB AUDIO ENGINE
+// ═══════════════════════════════════════════════════════
+let audioCtx = null;
+
+// Chord progressions — D minor cycle
+// Each chord = [strings notes Hz, woodwind Hz, brass Hz]
+const CHORDS = [
+  { name:'D Minor',   strings:[146.83,220.00,261.63], woodwind:[293.66,349.23], brass:[87.31,146.83] },
+  { name:'F Major',   strings:[174.61,220.00,261.63], woodwind:[349.23,392.00], brass:[87.31,174.61] },
+  { name:'C Major',   strings:[130.81,196.00,261.63], woodwind:[261.63,329.63], brass:[65.41,130.81]  },
+  { name:'A Minor',   strings:[110.00,220.00,261.63], woodwind:[220.00,329.63], brass:[55.00,110.00]  },
+];
+let chordIdx = 0;
+let chordTimer = 0;
+const CHORD_BEAT = 3.0; // seconds per chord
+
+// Per-section audio nodes
+const sections = {};
+
+function buildSectionVoice(ctx, type) {
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = 0;
+  gainNode.connect(ctx.destination);
+
+  // Master reverb (convolver approximation via delay feedback)
+  const delay = ctx.createDelay(0.3);
+  delay.delayTime.value = 0.12;
+  const delayGain = ctx.createGain();
+  delayGain.gain.value = 0.22;
+  gainNode.connect(delay);
+  delay.connect(delayGain);
+  delayGain.connect(gainNode);
+
+  const oscs = [];
+  const oscGains = [];
+
+  if(type === 'strings') {
+    // 6 oscillators — 2 per note, slightly detuned for string shimmer
+    const freqs = [146.83, 220.00, 261.63];
+    freqs.forEach(f => {
+      [-3,3].forEach(detune => {
+        const osc = ctx.createOscillator();
+        const og = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.value = f;
+        osc.detune.value = detune;
+        osc.connect(og); og.connect(gainNode);
+        og.gain.value = 0.12;
+        osc.start();
+        oscs.push(osc); oscGains.push(og);
+      });
+    });
+    // Lowpass filter to soften sawtooth
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 900;
+
+  } else if(type === 'woodwind') {
+    // Sine + tiny triangle mix = breathy, clear
+    const freqs = [293.66, 349.23];
+    freqs.forEach(f => {
+      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+      o1.type = 'sine'; o1.frequency.value = f;
+      o1.connect(g1); g1.connect(gainNode); g1.gain.value = 0.18;
+      o1.start(); oscs.push(o1); oscGains.push(g1);
+
+      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+      o2.type = 'triangle'; o2.frequency.value = f * 2.01;
+      o2.connect(g2); g2.connect(gainNode); g2.gain.value = 0.04;
+      o2.start(); oscs.push(o2); oscGains.push(g2);
+    });
+
+  } else if(type === 'brass') {
+    // Square wave through lowpass = horn-like buzz
+    const freqs = [87.31, 146.83];
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 600;
+    filt.connect(gainNode);
+    freqs.forEach(f => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = f;
+      o.connect(g); g.connect(filt); g.gain.value = 0.10;
+      o.start(); oscs.push(o); oscGains.push(g);
+    });
+
+  } else if(type === 'percussion') {
+    // Timpani = periodic noise bursts — handled separately in triggerTimp()
+    // Just a gain node for triggering
+  }
+
+  return { gainNode, oscs, oscGains, type, gain: 0 };
+}
+
+// Timpani burst trigger
+function triggerTimp(ctx, velocity) {
+  const now = ctx.currentTime;
+  // Noise source
+  const bufSize = ctx.sampleRate * 0.3;
+  const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for(let i=0;i<bufSize;i++) data[i] = (Math.random()*2-1);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+
+  // Bandpass + pitch envelope → timpani character
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'bandpass'; filt.frequency.value = 180; filt.Q.value = 4;
+
+  // Gain envelope — sharp attack, medium decay
+  const eg = ctx.createGain();
+  eg.gain.setValueAtTime(velocity * 0.7, now);
+  eg.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+
+  // Pitch drop (filter frequency drop)
+  filt.frequency.setValueAtTime(220, now);
+  filt.frequency.exponentialRampToValueAtTime(80, now + 0.5);
+
+  src.connect(filt); filt.connect(eg); eg.connect(ctx.destination);
+  src.start(now); src.stop(now + 0.6);
+}
+
+// Update all oscillator frequencies for new chord
+function updateChord(chord) {
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const s = sections;
+
+  if(s.strings) {
+    chord.strings.forEach((f,i) => {
+      if(s.strings.oscs[i*2])   s.strings.oscs[i*2].frequency.setTargetAtTime(f,   now, 0.3);
+      if(s.strings.oscs[i*2+1]) s.strings.oscs[i*2+1].frequency.setTargetAtTime(f, now, 0.3);
+    });
+  }
+  if(s.woodwind) {
+    chord.woodwind.forEach((f,i) => {
+      if(s.woodwind.oscs[i*2])   s.woodwind.oscs[i*2].frequency.setTargetAtTime(f,   now, 0.2);
+      if(s.woodwind.oscs[i*2+1]) s.woodwind.oscs[i*2+1].frequency.setTargetAtTime(f*2.01, now, 0.2);
+    });
+  }
+  if(s.brass) {
+    chord.brass.forEach((f,i) => {
+      if(s.brass.oscs[i]) s.brass.oscs[i].frequency.setTargetAtTime(f, now, 0.4);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// CONDUCTOR STATE
+// ═══════════════════════════════════════════════════════
+let mouseX=innerWidth/2, mouseY=innerHeight/2;
+let lastMouseX=mouseX, lastMouseY=mouseY;
+let velocity=0, smoothVelocity=0;
+let activeSection='all';
+let silenceTimer=0;
+let started=false;
+
+// Orchestra mode globals — must be declared BEFORE animate() runs
+let orchPlaying = false;
+let orchTrackIdx = -1;
+let orchBeatEnergy = 0;
+
+// Baton DOM element
+const batonEl = document.getElementById('baton');
+const chordDisp = document.getElementById('chord-display');
+const silenceEl = document.getElementById('silence-text');
+const velFill = document.getElementById('vel-fill');
+
+window.addEventListener('mousemove', e=>{
+  mouseX=e.clientX; mouseY=e.clientY;
+  if(batonEl){
+    batonEl.style.left=mouseX+'px';
+    batonEl.style.top=mouseY+'px';
+  }
+});
+
+// Start button
+document.getElementById('start-btn').addEventListener('click', ()=>{
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  sections.strings    = buildSectionVoice(audioCtx, 'strings');
+  sections.woodwind   = buildSectionVoice(audioCtx, 'woodwind');
+  sections.brass      = buildSectionVoice(audioCtx, 'brass');
+  sections.percussion = buildSectionVoice(audioCtx, 'percussion');
+  updateChord(CHORDS[0]);
+  document.getElementById('start-overlay').style.display='none';
+  chordDisp.classList.add('visible');
+  started=true;
+});
+
+// Which section is active based on cursor quadrant
+function getSectionFromPosition(nx, ny) {
+  // nx, ny normalized 0-1
+  // Center zone (20% radius) = all sections
+  const cx=Math.abs(nx-0.5), cy=Math.abs(ny-0.5);
+  if(cx<0.15 && cy<0.15) return 'all';
+  if(ny<0.5) return nx<0.5 ? 'strings' : 'woodwind';
+  else       return nx<0.5 ? 'brass'   : 'percussion';
+}
+
+// ═══════════════════════════════════════════════════════
+// ANIMATE
+// ═══════════════════════════════════════════════════════
+let t=0;
+let timpCooldown=0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  t+=0.012;
+
+  // ── Chandelier flicker ────────────────────────────────
+  chanLight.intensity=1.8+Math.sin(t*2.3)*0.08+Math.sin(t*5.7)*0.04;
+
+  if(started && !orchPlaying) {
+    // ── Cursor velocity ─────────────────────────────────
+    const dx=mouseX-lastMouseX, dy=mouseY-lastMouseY;
+    velocity=Math.sqrt(dx*dx+dy*dy);
+    lastMouseX=mouseX; lastMouseY=mouseY;
+    smoothVelocity+=(velocity-smoothVelocity)*0.15;
+    const normVel=Math.min(smoothVelocity/25, 1.0); // 0-1
+
+    // ── Baton glow ───────────────────────────────────────
+    if(batonEl) batonEl.classList.toggle('active', normVel>0.05);
+
+    // ── Velocity meter ───────────────────────────────────
+    velFill.style.height=(normVel*100)+'%';
+
+    // ── Section from quadrant ────────────────────────────
+    const nx=mouseX/innerWidth, ny=mouseY/innerHeight;
+    activeSection = getSectionFromPosition(nx, ny);
+
+    // ── Silence detection ────────────────────────────────
+    const isSilent = normVel < 0.015;
+    if(isSilent) silenceTimer+=0.012; else silenceTimer=0;
+    const silenceActive = silenceTimer>0.8;
+    silenceEl.classList.toggle('show', silenceActive && started);
+
+    // ── Section pills UI ─────────────────────────────────
+    ['strings','woodwind','brass','percussion'].forEach(sec=>{
+      const pill=document.getElementById('pill-'+sec);
+      const isActive=!silenceActive&&(activeSection==='all'||activeSection===sec);
+      pill.classList.toggle('active', isActive);
+    });
+
+    // ── Chord progression ────────────────────────────────
+    if(!silenceActive) {
+      chordTimer+=0.012;
+      if(chordTimer>=CHORD_BEAT) {
+        chordTimer=0;
+        chordIdx=(chordIdx+1)%CHORDS.length;
+        updateChord(CHORDS[chordIdx]);
+        chordDisp.textContent=CHORDS[chordIdx].name;
+      }
+    }
+
+    // ── Audio gain update ────────────────────────────────
+    if(audioCtx) {
+      const now=audioCtx.currentTime;
+      const masterVol = silenceActive ? 0 : normVel;
+
+      ['strings','woodwind','brass'].forEach(sec=>{
+        if(!sections[sec]) return;
+        const sectionActive = activeSection==='all'||activeSection===sec;
+        const targetGain = sectionActive ? masterVol * 0.55 : masterVol * 0.08;
+        sections[sec].gainNode.gain.setTargetAtTime(targetGain, now, 0.12);
+        sections[sec].gain = targetGain;
+      });
+
+      // Percussion — trigger hits based on velocity peaks
+      timpCooldown-=0.012;
+      if(activeSection==='all'||activeSection==='percussion') {
+        if(velocity>18&&timpCooldown<0&&!silenceActive) {
+          triggerTimp(audioCtx, normVel);
+          timpCooldown=0.55;
+        }
+      }
+    }
+
+    // ── Musician animations driven by conductor ──────────
+    musicians.forEach(m=>{
+      const sec=m.section;
+      const sectionActive=!silenceActive&&(activeSection==='all'||activeSection===sec);
+      const intensity=sectionActive?normVel:0.05;
+      const spd=0.8+normVel*2.5; // speed scales with baton speed
+
+      const sw=Math.sin(t*spd+m.phase)*intensity;
+      const br=Math.sin(t*1.3+m.phase)*0.006*intensity;
+
+      // Lean forward/back based on active state
+      const leanTarget=sectionActive?-normVel*0.12:0.06;
+      m.torsoG.rotation.x+=(leanTarget-m.torsoG.rotation.x)*0.06;
+      m.torsoG.rotation.z=sw*0.04;
+      m.torsoG.position.y=0.05+br;
+
+      // Head follows conductor when active
+      m.headG.rotation.x=(sectionActive?0.04:0.10)+Math.sin(t*0.55+m.phase)*0.04*intensity;
+      m.headG.rotation.z=sw*0.015;
+
+      // Bow arm for strings — speed matches velocity
+      if(sec==='strings'){
+        const bowSpd=1.8+normVel*3.5;
+        const bw=Math.sin(t*bowSpd+m.bowPhase)*(sectionActive?0.35+normVel*0.3:0.05);
+        m.armL.rotation.z=0.18+bw;
+        m.armL.rotation.x=-0.06+bw*0.2;
+        m.foreL.rotation.z=0.08+bw*0.35;
+      }
+      if(sec==='woodwind'){
+        m.armL.rotation.x=-0.04+Math.sin(t*(1.2+normVel)+m.phase)*(0.04*intensity);
+      }
+      if(sec==='brass'){
+        m.torsoG.rotation.x+=(sectionActive?-normVel*0.08:0.02-m.torsoG.rotation.x)*0.04;
+      }
+      if(sec==='percussion'){
+        if(sectionActive&&timpCooldown>0.45){
+          // Strike down
+          m.armL.rotation.x=-0.8;
+        } else {
+          m.armL.rotation.x+=((-0.2)-m.armL.rotation.x)*0.08;
+        }
+      }
+    });
+  } else if(!orchPlaying) {
+    // Idle animation before start
+    musicians.forEach(m=>{
+      const spd=m.section==='percussion'?1.8:1.1;
+      const sw=Math.sin(t*spd+m.phase);
+      m.torsoG.rotation.z=sw*0.022;
+      m.torsoG.position.y=0.05+Math.sin(t*1.3+m.phase)*0.005;
+      m.headG.rotation.x=0.08+Math.sin(t*0.55+m.phase)*0.04;
+      if(m.section==='strings'){
+        const bw=Math.sin(t*1.8+m.bowPhase)*0.25;
+        m.armL.rotation.z=0.18+bw; m.foreL.rotation.z=0.08+bw*0.3;
+      }
+    });
+  }
+
+  // ── Camera orbit ─────────────────────────────────────
+  camera.position.x=ot.x+radius*Math.sin(theta)*Math.cos(phi);
+  camera.position.y=ot.y+radius*Math.sin(phi);
+  camera.position.z=ot.z+radius*Math.cos(theta)*Math.cos(phi);
+  camera.lookAt(ot);
+  renderer.render(scene,camera);
+}
+animate();
+
+// ═══════════════════════════════════════════════════════
+// ORCHESTRA MODE — 4 synthesized orchestral pieces
+// Pure Web Audio API — no external URLs, works offline
+// Each "track" is a different musical pattern/character
+// ═══════════════════════════════════════════════════════
+
+const orchToggleBtn   = document.getElementById('orch-toggle');
+const orchPanel       = document.getElementById('orch-panel');
+const nowPlayingEl    = document.getElementById('now-playing');
+const nowPlayingTitle = document.getElementById('now-playing-title');
+const nowPlayingStop  = document.getElementById('now-playing-stop');
+const npBar           = document.getElementById('np-bar');
+const trackCards      = document.querySelectorAll('.track-card');
+
+const TRACKS = [
+  { name:'Beethoven — Symphony No. 5 · I', short:'Sym. 5 · Allegro con brio', tempo:'fast',  energy:0.92, bpm:132 },
+  { name:'Beethoven — Symphony No. 7 · II', short:'Sym. 7 · Allegretto',       tempo:'slow',  energy:0.62, bpm:76  },
+  { name:'Mozart — Eine Kleine Nachtmusik', short:'Eine Kleine · Allegro',      tempo:'medium',energy:0.74, bpm:112 },
+  { name:'Beethoven — Eroica · I',          short:'Eroica · Allegro con brio',  tempo:'fast',  energy:0.88, bpm:120 },
+];
+
+let orchAudio = null;
+let orchAnalyser = null;
+let orchAudioCtx2 = null;
+let orchNodes = []; // running oscillator nodes to stop
+let orchStartTime = 0;
+let orchDuration = 120; // 2 minutes per track
+
+// ── Note tables for each track ──────────────────────────
+// Each array: [frequency, startBeat, duration, volume, type]
+function getTrackNotes(idx, ctx) {
+  const tracks = [
+    // Track 0: Beethoven 5 — da-da-da-DUM motif in C minor
+    ()=> buildSymphony5(ctx),
+    // Track 1: Beethoven 7 II — hauntingly slow A minor
+    ()=> buildSym7(ctx),
+    // Track 2: Mozart Eine Kleine — bright G major
+    ()=> buildMozart(ctx),
+    // Track 3: Beethoven Eroica — bold Eb major
+    ()=> buildEroica(ctx),
+  ];
+  return tracks[idx]();
+}
+
+function scheduleNote(ctx, masterGain, freq, start, dur, vol, type='sawtooth', detune=0) {
+  const osc = ctx.createOscillator();
+  const g   = ctx.createGain();
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = freq * 4;
+
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.detune.value = detune;
+  osc.connect(filt); filt.connect(g); g.connect(masterGain);
+
+  // Envelope
+  const t0 = ctx.currentTime + start;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(vol, t0 + Math.min(0.04, dur*0.1));
+  g.gain.setValueAtTime(vol, t0 + dur * 0.7);
+  g.gain.linearRampToValueAtTime(0, t0 + dur);
+
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.05);
+  orchNodes.push(osc);
+  return osc;
+}
+
+function buildSymphony5(ctx) {
+  // da-da-da-DUM pattern in C minor, loops
+  const beat = 60/132;
+  const scale = [130.81,146.83,155.56,174.61,196,207.65,233.08,261.63];
+  // Main motif: G G G Eb  F F F D  — repeated
+  const motif = [[196,0],[196,1],[196,2],[155.56,3.5],[174.61,5],[174.61,6],[174.61,7],[146.83,8.5]];
+  let notes = [];
+  for(let rep=0; rep<8; rep++) {
+    motif.forEach(([f,b])=>{
+      const t = (rep*10+b)*beat;
+      notes.push([f, t, beat*0.85, 0.25, 'sawtooth']);
+      notes.push([f/2, t, beat*0.85, 0.12, 'square', -7]); // bass
+    });
+    // Harmony
+    notes.push([261.63,(rep*10+3.5)*beat, beat*1.5, 0.08, 'sine']);
+    notes.push([196,(rep*10+8.5)*beat, beat*1.5, 0.08, 'sine']);
+  }
+  return notes;
+}
+
+function buildSym7(ctx) {
+  // A minor slow pulse — iambic rhythm A-E-A-C-E
+  const beat = 60/76;
+  const pattern = [[220,0,1.8,0.18],[329.63,2,1.8,0.14],[261.63,4,1.8,0.12],[196,6,1.8,0.16],[246.94,8,1.8,0.13]];
+  let notes = [];
+  for(let rep=0; rep<10; rep++) {
+    pattern.forEach(([f,b,d,v])=>{
+      const t=(rep*10+b)*beat;
+      notes.push([f, t, d*beat, v, 'sine']);
+      notes.push([f*1.5, t+beat*0.3, d*beat*0.6, v*0.5, 'triangle']);
+    });
+  }
+  return notes;
+}
+
+function buildMozart(ctx) {
+  // G major bright arpeggios
+  const beat = 60/112;
+  const arp = [196,246.94,293.66,392,246.94,293.66,392,440];
+  let notes = [];
+  for(let rep=0; rep<12; rep++) {
+    arp.forEach((f,i)=>{
+      notes.push([f, (rep*arp.length+i)*beat*0.5, beat*0.45, 0.14, 'triangle']);
+      if(i%2===0) notes.push([f/2, (rep*arp.length+i)*beat*0.5, beat*0.9, 0.06, 'sine']);
+    });
+  }
+  return notes;
+}
+
+function buildEroica(ctx) {
+  // Eb major bold — full chords
+  const beat = 60/120;
+  const chords = [[311.13,392,466.16],[277.18,349.23,415.30],[329.63,415.30,493.88],[261.63,329.63,392]];
+  let notes = [];
+  for(let rep=0; rep<6; rep++) {
+    chords.forEach((chord, ci) => {
+      chord.forEach(f => {
+        notes.push([f, (rep*chords.length+ci)*beat*2, beat*1.8, 0.13, 'sawtooth']);
+        notes.push([f/2, (rep*chords.length+ci)*beat*2, beat*1.8, 0.08, 'square']);
+      });
+    });
+  }
+  return notes;
+}
+
+function playOrchTrack(idx) {
+  stopOrch();
+
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+
+  orchTrackIdx = idx;
+  orchPlaying = true;
+  orchStartTime = audioCtx.currentTime;
+
+  const track = TRACKS[idx];
+  orchNodes = [];
+
+  // Master gain for this track
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.7;
+
+  // Reverb (convolver approximation via delay)
+  const delay = audioCtx.createDelay(0.4);
+  delay.delayTime.value = 0.18;
+  const delayGain = audioCtx.createGain();
+  delayGain.gain.value = 0.25;
+  masterGain.connect(delay);
+  delay.connect(delayGain);
+  delayGain.connect(masterGain);
+  masterGain.connect(audioCtx.destination);
+
+  // Schedule all notes
+  const notes = getTrackNotes(idx, audioCtx);
+  notes.forEach(([freq, start, dur, vol, type, detune]) => {
+    scheduleNote(audioCtx, masterGain, freq, start, dur, vol, type||'sawtooth', detune||0);
+  });
+
+  // Beat energy driven by time
+  orchDuration = notes.reduce((mx,[,s,d])=>Math.max(mx,s+d),0);
+  orchAudio = { masterGain, paused: false, currentTime: 0, duration: orchDuration };
+
+  // UI
+  trackCards.forEach((c,i)=> c.classList.toggle('playing', i===idx));
+  nowPlayingTitle.textContent = track.short;
+  nowPlayingEl.classList.add('visible');
+  orchPanel.classList.remove('open');
+  orchToggleBtn.classList.remove('active');
+
+  // Progress + auto-stop
+  const progressInterval = setInterval(()=>{
+    if(!orchPlaying){ clearInterval(progressInterval); return; }
+    const elapsed = audioCtx.currentTime - orchStartTime;
+    orchAudio.currentTime = elapsed;
+    npBar.style.width = Math.min(elapsed/orchDuration*100,100)+'%';
+    if(elapsed >= orchDuration) { clearInterval(progressInterval); stopOrch(); }
+  }, 200);
+}
+
+function stopOrch() {
+  // Stop all scheduled oscillators
+  orchNodes.forEach(n=>{ try{ n.stop(); }catch(e){} });
+  orchNodes = [];
+  orchPlaying=false; orchTrackIdx=-1; orchBeatEnergy=0;
+  trackCards.forEach(c=>c.classList.remove('playing'));
+  nowPlayingEl.classList.remove('visible');
+  npBar.style.width='0%';
+}
+
+trackCards.forEach((card, idx)=>{
+  card.addEventListener('click', ()=>{
+    if(!started){
+      if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      if(!sections.strings){
+        sections.strings    = buildSectionVoice(audioCtx,'strings');
+        sections.woodwind   = buildSectionVoice(audioCtx,'woodwind');
+        sections.brass      = buildSectionVoice(audioCtx,'brass');
+        sections.percussion = buildSectionVoice(audioCtx,'percussion');
+        updateChord(CHORDS[0]);
+      }
+      document.getElementById('start-overlay').style.display='none';
+      chordDisp.classList.add('visible');
+      started=true;
+    }
+    if(orchTrackIdx===idx && orchPlaying){ stopOrch(); return; }
+    playOrchTrack(idx);
+  });
+});
+
+nowPlayingStop.addEventListener('click', stopOrch);
+orchToggleBtn.addEventListener('click', ()=>{
+  orchPanel.classList.toggle('open');
+  orchToggleBtn.classList.toggle('active', orchPanel.classList.contains('open'));
+});
+
+// Beat energy — driven by elapsed time since track started
+const freqData = new Uint8Array(128);
+function getOrchEnergy() {
+  if(!orchPlaying || !audioCtx) return 0;
+  const elapsed = audioCtx.currentTime - orchStartTime;
+  const track = TRACKS[orchTrackIdx];
+  if(!track) return 0;
+  const beatHz = track.bpm / 60;
+  // Layer 3 frequencies for realistic orchestral pulse
+  const e = (
+    Math.abs(Math.sin(elapsed * beatHz * Math.PI)) * 0.50 +
+    Math.abs(Math.sin(elapsed * beatHz * Math.PI * 2.03)) * 0.28 +
+    Math.abs(Math.sin(elapsed * beatHz * Math.PI * 0.49)) * 0.22
+  );
+  return Math.min(e * track.energy, 1.0);
+}
+
+// ── Override animate loop musician behaviour in orch mode ──────────
+// Patch: in the animate loop we check orchPlaying and drive animations
+// from beat energy instead of cursor velocity.
+// We inject this by monkey-patching the global orchBeatEnergy variable
+// which is read inside animate().
+
+// Patch animate to read orchBeatEnergy
+const _origAnimate = animate; // already running via requestAnimationFrame
+// Instead we update orchBeatEnergy each frame in a separate rAF
+// (the main animate loop already runs; we just need to update the energy value)
+function orchEnergyLoop() {
+  requestAnimationFrame(orchEnergyLoop);
+  if(orchPlaying) {
+    const raw = getOrchEnergy();
+    orchBeatEnergy += (raw - orchBeatEnergy) * 0.18;
+  } else {
+    orchBeatEnergy *= 0.92;
+  }
+}
+orchEnergyLoop();
+
+// Patch the musician animation section to use orchBeatEnergy
+// We do this by overriding the smoothVelocity read in the animate loop
+// via a global flag checked there. Since animate() is a closure, we
+// expose orchPlaying and orchBeatEnergy as globals (already done above).
+// The animate loop will need a small patch — we add it inline below.
+
+// Re-declare animate to inject orch mode behaviour
+// (The original animate() is already running via rAF — we can't re-declare it.
+//  Instead we patch the global `started` and smoothVelocity via a proxy.)
+
+// Simpler approach: override smoothVelocity when in orch mode
+// by replacing its value before the musician loop reads it.
+// We do this with a MutationObserver trick: no, we just patch via setInterval.
+
+// Actually cleanest: expose a getEffectiveVelocity() function
+// and the animate loop uses it. Since animate is already defined above,
+// we add a global override variable:
+window._orchVelOverride = null; // null = use cursor, number = use this
+
+// Patch the velFill and section pills in orch mode
+setInterval(()=>{
+  if(orchPlaying) {
+    const e = orchBeatEnergy;
+    velFill.style.height = (e * 100) + '%';
+    batonEl.classList.toggle('active', e > 0.1);
+
+    // All sections active in orch mode
+    ['strings','woodwind','brass','percussion'].forEach(sec=>{
+      document.getElementById('pill-'+sec).classList.toggle('active', e > 0.05);
+    });
+
+    // Drive musician animations via orchBeatEnergy
+    const track = TRACKS[orchTrackIdx];
+    const baseSpd = track.tempo==='fast'?2.5:track.tempo==='slow'?0.8:1.5;
+
+    musicians.forEach(m=>{
+      const intensity = e * (track.energy || 0.8);
+      const spd = baseSpd + e * 1.5;
+      const sw = Math.sin(Date.now()*0.001 * spd + m.phase) * intensity;
+      const br = Math.sin(Date.now()*0.001 * 1.3 + m.phase) * 0.006 * intensity;
+
+      const leanTarget = -intensity * 0.10;
+      m.torsoG.rotation.x += (leanTarget - m.torsoG.rotation.x) * 0.05;
+      m.torsoG.rotation.z = sw * 0.04;
+      m.torsoG.position.y = 0.05 + br;
+      m.headG.rotation.x = 0.04 + Math.sin(Date.now()*0.001*0.55+m.phase)*0.04*intensity;
+      m.headG.rotation.z = sw * 0.012;
+
+      if(m.section==='strings'){
+        const bowSpd = baseSpd + e * 3;
+        const bw = Math.sin(Date.now()*0.001*bowSpd+m.bowPhase)*(0.18+intensity*0.38);
+        m.armL.rotation.z = 0.18 + bw;
+        m.armL.rotation.x = -0.06 + bw*0.18;
+        m.foreL.rotation.z = 0.08 + bw*0.32;
+      }
+      if(m.section==='woodwind'){
+        m.armL.rotation.x = -0.04+Math.sin(Date.now()*0.001*(1.2+e)+m.phase)*(0.04*intensity);
+      }
+      if(m.section==='percussion' && e > 0.4){
+        m.armL.rotation.x = -0.7;
+      } else if(m.section==='percussion'){
+        m.armL.rotation.x += (-0.2-m.armL.rotation.x)*0.08;
+      }
+    });
+
+    // Hide silence text in orch mode
+    silenceEl.classList.remove('show');
+    chordDisp.classList.remove('visible');
+  }
+}, 16); // ~60fps via setInterval for orch mode overlay
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4 — HAND / MOTION TRACKING (Pure Canvas, No CDN)
+// Uses webcam + canvas pixel difference to detect motion.
+// Brightest motion centroid → conductor position.
+// Works offline, no MediaPipe required.
+// ═══════════════════════════════════════════════════════
+
+const handToggleBtn = document.getElementById('hand-toggle');
+const handCanvas    = document.getElementById('hand-canvas');
+const handStatus    = document.getElementById('hand-status');
+const handDot       = document.getElementById('hand-dot');
+const videoEl       = document.getElementById('video-el');
+const hCtx          = handCanvas.getContext('2d', {willReadFrequently: true});
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4 — MEDIAPIPE HANDS SKELETON
+// Loads MediaPipe via CDN, draws gold skeleton on preview
+// Counts extended fingers → controls orchestra sections
+// ✊ Fist=silence  ☝1=strings  ✌2=woodwind  🤟3=brass  🖐5=all
+// ═══════════════════════════════════════════════════════
+
+let mpHands      = null;
+let mpCamera2    = null;
+let handMode     = false;
+let handDetected = false;
+let motionStream = null;
+let gestureSmooth  = 0;
+let gestureCX      = innerWidth/2,  gestureCY = innerHeight/2;
+let lastGestureCX  = innerWidth/2,  lastGestureCY = innerHeight/2;
+let gestureVel     = 0;
+
+// Gesture HUD emoji shown on screen
+const gestureHUD = document.createElement('div');
+gestureHUD.style.cssText = 'position:fixed;bottom:152px;left:16px;font-size:28px;pointer-events:none;z-index:300;display:none;filter:drop-shadow(0 0 8px rgba(255,200,50,0.9))';
+document.body.appendChild(gestureHUD);
+
+// Hand landmark connections for drawing skeleton
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],        // thumb
+  [0,5],[5,6],[6,7],[7,8],        // index
+  [5,9],[9,10],[10,11],[11,12],   // middle
+  [9,13],[13,14],[14,15],[15,16], // ring
+  [13,17],[17,18],[18,19],[19,20],// pinky
+  [0,17],[0,5]                    // palm base
+];
+
+// Tip landmarks and their MCP (knuckle) landmarks for finger extension check
+const FINGER_TIPS  = [4, 8, 12, 16, 20];
+const FINGER_MCPS  = [2, 5,  9, 13, 17];
+const FINGER_PIPS  = [3, 6, 10, 14, 18];
+
+function countExtendedFingers(lm) {
+  // Thumb: tip x further from wrist than IP joint (handedness-aware)
+  const wrist = lm[0];
+  const thumbTip = lm[4], thumbIP = lm[3], thumbMCP = lm[2];
+  // Use x-distance since thumb extends sideways
+  const thumbExt = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbMCP.x - wrist.x);
+
+  let count = thumbExt ? 1 : 0;
+
+  // Other 4 fingers: tip y is higher (smaller y) than PIP joint
+  for(let i = 1; i < 5; i++) {
+    const tip = lm[FINGER_TIPS[i]];
+    const pip = lm[FINGER_PIPS[i]];
+    if(tip.y < pip.y - 0.02) count++; // tip above pip = extended
+  }
+  return Math.min(5, count);
+}
+
+function drawSkeleton(lm, canvasW, canvasH) {
+  // Draw connections
+  hCtx.lineWidth = 2;
+  HAND_CONNECTIONS.forEach(([a, b]) => {
+    const ax = (1 - lm[a].x) * canvasW; // mirror
+    const ay = lm[a].y * canvasH;
+    const bx = (1 - lm[b].x) * canvasW;
+    const by = lm[b].y * canvasH;
+    // Colour by region: fingers = gold, palm = dimmer
+    hCtx.strokeStyle = b <= 4 ? 'rgba(255,180,40,0.9)'   // thumb
+                     : b <= 8  ? 'rgba(255,220,80,0.9)'   // index
+                     : b <= 12 ? 'rgba(200,255,120,0.9)'  // middle
+                     : b <= 16 ? 'rgba(100,220,255,0.9)'  // ring
+                     : b <= 20 ? 'rgba(180,100,255,0.9)'  // pinky
+                     :           'rgba(255,200,80,0.5)';  // palm
+    hCtx.beginPath(); hCtx.moveTo(ax, ay); hCtx.lineTo(bx, by); hCtx.stroke();
+  });
+
+  // Draw landmark dots
+  lm.forEach((pt, i) => {
+    const x = (1 - pt.x) * canvasW;
+    const y = pt.y * canvasH;
+    const r = i === 0 ? 5 : FINGER_TIPS.includes(i) ? 4 : 2.5;
+    hCtx.beginPath(); hCtx.arc(x, y, r, 0, Math.PI*2);
+    hCtx.fillStyle = FINGER_TIPS.includes(i) ? 'rgba(255,255,255,1)' :
+                     i === 0 ? 'rgba(255,200,80,1)' : 'rgba(201,168,76,0.9)';
+    hCtx.fill();
+  });
+}
+
+function applyGesture(fingers, wristX, wristY) {
+  gestureSmooth += (fingers - gestureSmooth) * 0.3;
+  const f = Math.round(gestureSmooth);
+
+  // Wrist position → screen coords (mirrored)
+  const sx = (1 - wristX) * innerWidth;
+  const sy = wristY * innerHeight;
+  const dx = sx - lastGestureCX, dy = sy - lastGestureCY;
+  gestureVel = Math.sqrt(dx*dx + dy*dy);
+  gestureCX += (sx - gestureCX) * 0.35;
+  gestureCY += (sy - gestureCY) * 0.35;
+  lastGestureCX = sx; lastGestureCY = sy;
+
+  mouseX = gestureCX; mouseY = gestureCY;
+  handDot.style.left = gestureCX + 'px';
+  handDot.style.top  = gestureCY + 'px';
+  if(batonEl) batonEl.style.opacity = '0';
+
+  if(f === 0) {
+    // Fist → silence
+    gestureHUD.textContent = '✊';
+    handStatus.textContent = '✊ Fist — Silence';
+    velocity = 0; smoothVelocity = 0;
+    handDot.classList.remove('visible');
+  } else {
+    const emojis  = ['','☝️','✌️','🤟','🖖','🖐️'];
+    const labels  = ['','Strings','+ Woodwind','+ Brass','Full orchestra','FULL BLAST!'];
+    const sections= ['','strings','woodwind','brass','all','all'];
+    gestureHUD.textContent = emojis[Math.min(f,5)];
+    handStatus.textContent = `${f} finger${f>1?'s':''} — ${labels[Math.min(f,5)]}`;
+    activeSection = sections[Math.min(f,5)];
+
+    // Volume = fingers/5 + height of hand (higher = louder) + velocity
+    const heightBoost = 1 - (gestureCY / innerHeight);
+    const targetVel = (f/5)*22 + heightBoost*7 + gestureVel*0.5;
+    velocity = Math.min(targetVel, 30);
+    smoothVelocity += (velocity - smoothVelocity) * 0.25;
+    handDot.classList.add('visible');
+  }
+
+  gestureHUD.style.display = 'block';
+  velFill.style.height = (Math.min(smoothVelocity/25, 1)*100)+'%';
+}
+
+function onMPResults(results) {
+  // Draw mirrored video background
+  hCtx.save();
+  hCtx.translate(handCanvas.width, 0);
+  hCtx.scale(-1, 1);
+  hCtx.drawImage(results.image, 0, 0, handCanvas.width, handCanvas.height);
+  hCtx.restore();
+
+  if(results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const lm = results.multiHandLandmarks[0];
+    handDetected = true;
+    handStatus.textContent && null; // updated by applyGesture
+
+    // Draw skeleton
+    drawSkeleton(lm, handCanvas.width, handCanvas.height);
+
+    // Count fingers and apply
+    const fingers = countExtendedFingers(lm);
+    applyGesture(fingers, lm[0].x, lm[0].y);
+
+    // Gold border
+    hCtx.strokeStyle = 'rgba(201,168,76,0.8)';
+    hCtx.lineWidth = 2;
+    hCtx.strokeRect(1,1,handCanvas.width-2,handCanvas.height-2);
+  } else {
+    handDetected = false;
+    handStatus.textContent = '◌ Show your hand…';
+    gestureHUD.textContent = '';
+    handDot.classList.remove('visible');
+    if(batonEl) batonEl.style.opacity = '1';
+    velocity = 0; smoothVelocity *= 0.9;
+
+    hCtx.strokeStyle = 'rgba(255,255,255,0.1)';
+    hCtx.lineWidth = 1.5;
+    hCtx.strokeRect(1,1,handCanvas.width-2,handCanvas.height-2);
+  }
+}
+
+function initHandTracking() {
+  handCanvas.width  = 200;
+  handCanvas.height = 150;
+  handCanvas.classList.add('visible');
+  handStatus.classList.add('visible');
+  handStatus.textContent = '⌛ Loading MediaPipe…';
+
+  hCtx.fillStyle = '#060408';
+  hCtx.fillRect(0,0,200,150);
+
+  // Dynamically load MediaPipe Hands from CDN
+  function loadScript(src, cb) {
+    const s = document.createElement('script');
+    s.src = src; s.onload = cb;
+    s.onerror = () => { handStatus.textContent = '✗ CDN blocked — try online'; };
+    document.head.appendChild(s);
+  }
+
+  function startMP() {
+    if(typeof Hands === 'undefined') {
+      handStatus.textContent = '✗ MediaPipe failed to load';
+      return;
+    }
+
+    mpHands = new Hands({ locateFile: f =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${f}`
+    });
+    mpHands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.6
+    });
+    mpHands.onResults(onMPResults);
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode:'user', width:320, height:240 } })
+      .then(stream => {
+        motionStream = stream;
+        videoEl.srcObject = stream;
+        videoEl.muted = true;
+        videoEl.playsInline = true;
+        videoEl.play().catch(()=>{});
+
+        handStatus.textContent = '◌ Show your hand…';
+
+        // Send frames to MediaPipe
+        async function sendFrame() {
+          if(!handMode) return;
+          if(videoEl.readyState >= 2) {
+            await mpHands.send({ image: videoEl });
+          }
+          requestAnimationFrame(sendFrame);
+        }
+        videoEl.addEventListener('loadeddata', sendFrame, { once: true });
+        // Also start immediately if already loaded
+        if(videoEl.readyState >= 2) sendFrame();
+      })
+      .catch(err => {
+        handStatus.textContent = '✗ Camera denied';
+        console.warn(err);
+      });
+  }
+
+  // Load MediaPipe scripts in sequence
+  loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js', () => {
+    loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js', startMP);
+  });
+}
+
+handToggleBtn.addEventListener('click', ()=>{
+  if(!started){
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(!sections.strings){
+      sections.strings    = buildSectionVoice(audioCtx,'strings');
+      sections.woodwind   = buildSectionVoice(audioCtx,'woodwind');
+      sections.brass      = buildSectionVoice(audioCtx,'brass');
+      sections.percussion = buildSectionVoice(audioCtx,'percussion');
+      updateChord(CHORDS[0]);
+    }
+    document.getElementById('start-overlay').style.display='none';
+    chordDisp.classList.add('visible');
+    started=true;
+  }
+
+  handMode = !handMode;
+  handToggleBtn.classList.toggle('active', handMode);
+
+  if(handMode) {
+    handToggleBtn.textContent = '✋ Hand: ON';
+    initHandTracking();
+  } else {
+    handToggleBtn.textContent = '✋ Hand Mode';
+    handCanvas.classList.remove('visible');
+    handStatus.classList.remove('visible');
+    handDot.classList.remove('visible');
+    gestureHUD.style.display = 'none';
+    if(batonEl) batonEl.style.opacity = '1';
+    handDetected = false;
+    if(mpHands) { mpHands.close(); mpHands = null; }
+    if(motionStream) { motionStream.getTracks().forEach(t=>t.stop()); motionStream=null; }
+    videoEl.pause(); videoEl.srcObject = null;
+    velocity = 0; smoothVelocity = 0;
+  }
+});
+
+</script>
+</body>
+</html>
