@@ -1,4 +1,4 @@
-# 🎼 The Orchestra — WebOreel Hackathon Project
+# 🎼 The Orchestra
 
 > **Conduct a full 3D orchestra with your hand. No plugins. No installs. Pure browser magic.**
 
